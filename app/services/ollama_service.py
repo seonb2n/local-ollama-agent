@@ -1,12 +1,16 @@
 """
 Ollama 서비스 - LLM 모델과의 통신을 담당
 """
-import asyncio
+import os
+import sys
 import aiohttp
 import logging
 from typing import List, Optional, Dict, Any
 from langchain_community.llms import Ollama
 
+from .context_manager import context_manager
+
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -73,37 +77,102 @@ class OllamaService:
             return []
 
     async def generate_code(self, prompt: str, **kwargs) -> str:
-        """코드 생성 요청"""
+        """기본 코드 생성 요청"""
         if not self.llm:
             await self.initialize()
 
         try:
-            # 비동기 실행을 위해 executor 사용
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                self.llm.invoke,
-                prompt
-            )
+            response = self.llm.invoke(prompt)
             return response
-
         except Exception as e:
             logger.error(f"코드 생성 실패: {e}")
             raise
 
-    async def generate_code_with_template(self, description: str, language: str = "python",
-                                          framework: Optional[str] = None) -> str:
-        """템플릿을 사용한 코드 생성"""
+    async def generate_code_with_context(self, description: str, language: str = "python",
+                                         framework: Optional[str] = None,
+                                         session_id: Optional[str] = None) -> str:
+        """컨텍스트를 활용한 스마트 코드 생성"""
+        if not self.llm:
+            await self.initialize()
 
-        # 언어별 템플릿
+        # 컨텍스트 가져오기
+        context_info = ""
+        if session_id:
+            context_info = context_manager.get_context_for_llm(session_id)
+
+        # 요청 유형 분석
+        is_modification_request = self._is_code_modification_request(description)
+
+        if context_info and is_modification_request:
+            # 기존 코드 수정 요청
+            enhanced_prompt = f"""
+이전 대화 컨텍스트:
+{context_info}
+
+현재 요청: {description}
+
+위의 컨텍스트에서 가장 최근에 생성된 코드를 기반으로 다음 작업을 수행해주세요:
+- 요청사항: {description}
+- 기존 코드의 구조와 기능은 유지하면서 요청된 수정사항만 적용
+- 완전한 수정된 코드를 제공 (부분 코드가 아닌 전체 코드)
+
+수정된 완전한 코드:
+"""
+        elif context_info:
+            # 기존 프로젝트에 새 기능 추가
+            base_template = self._get_template_by_language(description, language, framework)
+            enhanced_prompt = f"""
+이전 대화 컨텍스트:
+{context_info}
+
+현재 요청: {base_template}
+
+위의 컨텍스트를 참고하여 다음 조건을 만족해주세요:
+1. 기존 프로젝트와 일관성 유지 (같은 언어, 스타일, 패턴)
+2. 이미 사용 중인 라이브러리 활용
+3. 기존 파일들과 호환되는 구조
+4. 점진적이고 발전적인 코드 생성
+
+답변:
+"""
+        else:
+            # 새로운 프로젝트 시작
+            base_template = self._get_template_by_language(description, language, framework)
+            enhanced_prompt = base_template
+
+        try:
+            response = self.llm.invoke(enhanced_prompt)
+            return response
+        except Exception as e:
+            logger.error(f"컨텍스트 기반 코드 생성 실패: {e}")
+            raise
+
+    def _is_code_modification_request(self, description: str) -> bool:
+        """코드 수정 요청인지 판단"""
+        modification_keywords = [
+            "수정", "변경", "바꿔", "제거", "삭제", "추가해줘", "고쳐",
+            "주석 제거", "주석 추가", "리팩토링", "최적화",
+            "이 코드를", "방금 만든", "너가 만든", "기존 코드",
+            "이 앱에", "이 프로그램에", "위 코드에"
+        ]
+
+        description_lower = description.lower()
+        return any(keyword in description_lower for keyword in modification_keywords)
+
+    def _get_template_by_language(self, description: str, language: str, framework: Optional[str]) -> str:
+        """언어별 템플릿 선택"""
         templates = {
             "python": self._get_python_template(description, framework),
             "javascript": self._get_javascript_template(description, framework),
             "java": self._get_java_template(description, framework)
         }
 
-        template = templates.get(language, templates["python"])
+        return templates.get(language, templates["python"])
 
+    async def generate_code_with_template(self, description: str, language: str = "python",
+                                          framework: Optional[str] = None) -> str:
+        """템플릿을 사용한 코드 생성"""
+        template = self._get_template_by_language(description, language, framework)
         return await self.generate_code(template)
 
     def _get_python_template(self, description: str, framework: Optional[str]) -> str:

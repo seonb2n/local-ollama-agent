@@ -4,7 +4,7 @@ FastAPI 라우터 - API 엔드포인트 정의
 import os
 import time
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -16,6 +16,7 @@ from app.models import (
     CodeExecutionResponse,
     FileListResponse
 )
+from app.services.context_manager import context_manager
 from app.services.ollama_service import ollama_service
 from app.config import settings
 
@@ -23,19 +24,24 @@ router = APIRouter()
 
 
 @router.post("/generate", response_model=CodeGenerationResponse)
-async def generate_code(request: CodeGenerationRequest):
-    """코드 생성 API"""
+async def generate_code(request: CodeGenerationRequest, session_id: Optional[str] = None):
+    """컨텍스트를 활용한 코드 생성 API"""
     try:
         start_time = time.time()
 
-        # 요청 로깅
-        print(f"🤖 코드 생성 요청: {request.description[:50]}...")
+        # 세션이 없으면 새로 생성
+        if not session_id:
+            session_id = context_manager.create_session()
 
-        # Ollama 서비스로 코드 생성
-        generated_code = await ollama_service.generate_code_with_template(
+        # 요청 로깅
+        print(f"🤖 코드 생성 요청 (세션: {session_id[:8]}...): {request.description[:50]}...")
+
+        # 컨텍스트를 활용한 코드 생성
+        generated_code = await ollama_service.generate_code_with_context(
             description=request.description,
             language=request.language.value,
-            framework=request.framework
+            framework=request.framework,
+            session_id=session_id
         )
 
         # 파일명 생성
@@ -47,10 +53,25 @@ async def generate_code(request: CodeGenerationRequest):
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(generated_code)
 
-        # 의존성 추출 (간단한 파싱)
+        # 의존성 추출
         dependencies = _extract_dependencies(generated_code, request.language.value)
 
         execution_time = time.time() - start_time
+
+        # 컨텍스트에 대화 기록 추가
+        context_manager.add_conversation_turn(
+            session_id=session_id,
+            user_request=request.description,
+            assistant_response=f"코드를 생성했습니다: {filename}",
+            generated_code=generated_code,
+            filename=filename,
+            metadata={
+                "language": request.language.value,
+                "framework": request.framework,
+                "dependencies": dependencies,
+                "execution_time": execution_time
+            }
+        )
 
         print(f"✅ 코드 생성 완료: {filename} ({execution_time:.1f}초)")
 
@@ -192,27 +213,45 @@ async def download_file(filename: str):
         )
 
 
-@router.delete("/files/{filename}")
-async def delete_file(filename: str):
-    """생성된 파일 삭제"""
-    try:
-        file_path = os.path.join(settings.generated_code_path, filename)
+@router.post("/sessions")
+async def create_session(user_id: Optional[str] = None):
+    """새 대화 세션 생성"""
+    session_id = context_manager.create_session(user_id)
+    return {"session_id": session_id, "message": "새 세션이 생성되었습니다."}
 
-        if not os.path.exists(file_path):
-            raise HTTPException(
-                status_code=404,
-                detail=f"파일을 찾을 수 없습니다: {filename}"
-            )
 
-        os.remove(file_path)
+@router.get("/sessions/{session_id}")
+async def get_session_info(session_id: str):
+    """세션 정보 조회"""
+    session_info = context_manager.get_session_history(session_id)
+    if not session_info:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    return session_info
 
-        return {"message": f"파일이 삭제되었습니다: {filename}"}
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"파일 삭제 중 오류가 발생했습니다: {str(e)}"
-        )
+@router.get("/sessions")
+async def list_sessions(user_id: Optional[str] = None):
+    """세션 목록 조회"""
+    sessions = context_manager.get_all_sessions(user_id)
+    return {"sessions": sessions, "total": len(sessions)}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """세션 삭제"""
+    success = context_manager.delete_session(session_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    return {"message": "세션이 삭제되었습니다."}
+
+
+@router.get("/sessions/{session_id}/context")
+async def get_session_context(session_id: str):
+    """세션의 현재 컨텍스트 조회"""
+    context = context_manager.get_context_for_llm(session_id, include_code=False)
+    if not context:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    return {"session_id": session_id, "context": context}
 
 
 def _get_file_extension(language: str) -> str:
