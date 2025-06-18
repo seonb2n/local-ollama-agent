@@ -141,6 +141,7 @@ if __name__ == "__main__":
         reload=settings.debug,
         reload_dirs=["app"] if settings.debug else None,  # app 폴더만 감시
         reload_excludes=[
+            "../generated_code/*"
             "generated_code",
             "logs",
             "*.log",
