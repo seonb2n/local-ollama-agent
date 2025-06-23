@@ -5,6 +5,8 @@ import os
 import sys
 import time
 
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 import aiohttp
 import logging
 from typing import List, Optional, Dict, Any, Tuple
@@ -14,6 +16,7 @@ from langchain_community.llms import Ollama
 import json
 from .context_manager import context_manager
 from .dto.self_improvements import ImprovementIteration, ReflectionResult
+from ..repository.RagIntegration import RAGIntegration
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ..config import settings
@@ -42,6 +45,9 @@ class OllamaService:
         self.google_api_key = os.getenv('GOOGLE_SEARCH_API_KEY')
         self.search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
 
+        self.rag_integration = None
+        self.enable_rag = True  # RAG 기능 활성화 여부
+
     async def initialize(self):
         """서비스 초기화"""
         try:
@@ -50,6 +56,11 @@ class OllamaService:
                 model=self.default_model,
                 base_url=self.base_url
             )
+
+            if self.enable_rag:
+                self.rag_integration = RAGIntegration()
+                await self.rag_integration.initialize(self.default_model)
+                logger.info("✅ RAG 시스템 초기화 완료")
 
             # 연결 테스트
             await self.test_connection()
@@ -118,16 +129,35 @@ class OllamaService:
         if session_id:
             context_info = context_manager.get_context_for_llm(session_id)
 
-        # 1-1. 웹 검색 필요 여부 판단 및 수행
+        # 1-1. RAG 검색 수행 (웹 검색보다 우선)
+        rag_info = ""
+        optimized_keyword = self._get_optimized_query(description, language)
+        if self.enable_rag and self.rag_integration:
+            should_use_rag = await self.rag_integration.should_use_rag(description)
+            if should_use_rag:
+                logger.info("🔍 RAG 시스템을 통한 지식 검색 중...")
+                try:
+                    # RAG로 관련 문서 검색
+                    search_results = await self.rag_integration.search_knowledge(optimized_keyword)
+                    if search_results:
+                        rag_info = f"""
+        **관련 기술 문서 (RAG 검색 결과):**
+        {search_results}
+        """
+                        logger.info("✅ RAG 검색 완료")
+                except Exception as e:
+                    logger.error(f"RAG 검색 실패: {e}")
+
+            # 1-2. 웹 검색 수행 (RAG 결과가 없거나 부족한 경우)
         web_search_info = ""
-        if await self._should_perform_web_search(description, language, framework):
+        if not rag_info and await self._should_perform_web_search(description, language, framework):
             logger.info("🔍 웹 검색 수행 중...")
-            web_search_info = await self._perform_web_search(description, language)
+            web_search_info = await self._perform_web_search(optimized_keyword)
             logger.info("✅ 웹 검색 완료")
 
         # 2. 요청 유형 분석 및 프롬프트 생성
         enhanced_prompt = self._build_context_aware_prompt(
-            description, language, framework, context_info, web_search_info
+            description, language, framework, context_info, rag_info + web_search_info
         )
 
         try:
@@ -645,10 +675,9 @@ class OllamaService:
         except:
             return keyword_score >= 1
 
-    async def _perform_web_search(self, query: str, language: str) -> str:
+    async def _perform_web_search(self, keywords: List[str]) -> str:
         """Google Custom Search API를 사용한 웹 검색"""
         try:
-            logger.info(f"🔍 웹 검색 시작 - 쿼리: '{query}', 언어: '{language}'")
 
             if not self.google_api_key or not self.search_engine_id:
                 logger.error("Google Search API 설정이 완료되지 않았습니다.")
@@ -658,10 +687,7 @@ class OllamaService:
             import urllib.parse
 
             # 검색 쿼리 최적화
-            keywords = self._get_optimized_query(query, language)
             search_query = " ".join(keywords)
-            logger.info(f"최적화된 쿼리: '{search_query}'")
-
             encoded_query = urllib.parse.quote(search_query)
 
             # Google Custom Search API URL
@@ -671,7 +697,6 @@ class OllamaService:
                 f"&cx={self.search_engine_id}"
                 f"&q={encoded_query}"
                 f"&num={min(self.max_search_results, 10)}"
-                f"&lr=lang_{language[:2]}"
             )
 
             logger.info(f"검색 URL: {search_url[:100]}...")  # API 키 노출 방지를 위해 처음 100글자만
