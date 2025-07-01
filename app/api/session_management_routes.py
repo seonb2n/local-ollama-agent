@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from ..services.context_management_service import context_service
 
-router = APIRouter(prefix="/sessions", tags=["Session Management"])
+session_router = APIRouter(prefix="/sessions", tags=["Session Management"])
 
 
 # Request/Response 모델들
@@ -30,7 +30,7 @@ class ImprovementSettingsRequest(BaseModel):
 
 
 # 세션 관리 API들
-@router.post("", response_model=SessionResponse)
+@session_router.post("", response_model=SessionResponse)
 async def create_session(request: SessionCreateRequest = SessionCreateRequest()):
     """새 대화 세션 생성"""
     try:
@@ -53,7 +53,7 @@ async def create_session(request: SessionCreateRequest = SessionCreateRequest())
         )
 
 
-@router.get("/{session_id}")
+@session_router.get("/{session_id}")
 async def get_session_info(session_id: str):
     """세션 정보 조회"""
     try:
@@ -77,7 +77,7 @@ async def get_session_info(session_id: str):
         )
 
 
-@router.get("")
+@session_router.get("")
 async def list_sessions(user_id: Optional[str] = None, limit: int = 50, offset: int = 0):
     """세션 목록 조회"""
     try:
@@ -102,7 +102,7 @@ async def list_sessions(user_id: Optional[str] = None, limit: int = 50, offset: 
         )
 
 
-@router.delete("/{session_id}")
+@session_router.delete("/{session_id}")
 async def delete_session(session_id: str):
     """세션 삭제"""
     try:
@@ -124,7 +124,7 @@ async def delete_session(session_id: str):
         )
 
 
-@router.get("/{session_id}/context")
+@session_router.get("/{session_id}/context")
 async def get_session_context(session_id: str, include_code: bool = False):
     """세션의 현재 컨텍스트 조회"""
     try:
@@ -148,7 +148,7 @@ async def get_session_context(session_id: str, include_code: bool = False):
         )
 
 
-@router.get("/{session_id}/conversations")
+@session_router.get("/{session_id}/conversations")
 async def get_session_conversations(session_id: str, limit: int = 20, offset: int = 0):
     """세션의 대화 기록 조회"""
     try:
@@ -181,7 +181,7 @@ async def get_session_conversations(session_id: str, limit: int = 20, offset: in
         )
 
 
-@router.post("/{session_id}/clear")
+@session_router.post("/{session_id}/clear")
 async def clear_session_history(session_id: str):
     """세션의 대화 기록 초기화 (세션은 유지, 대화만 삭제)"""
     try:

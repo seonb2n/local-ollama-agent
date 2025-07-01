@@ -21,13 +21,15 @@ from ..models import (
 
 import sys
 
+from ..util.sanitize_string import clean_markdown_code_blocks
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ..config import settings
 
-router = APIRouter(prefix="/code", tags=["Code Generation"])
+code_router = APIRouter(prefix="/code", tags=["Code Generation"])
 
 
-@router.post("/generate", response_model=CodeGenerationResponse)
+@code_router.post("/generate", response_model=CodeGenerationResponse)
 async def generate_code(request: CodeGenerationRequest, session_id: Optional[str] = None):
     """컨텍스트를 활용한 코드 생성 API"""
     try:
@@ -41,13 +43,15 @@ async def generate_code(request: CodeGenerationRequest, session_id: Optional[str
             session_id=session_id
         )
 
+        cleaned_code = clean_markdown_code_blocks(generated_code)
+
         # 파일명 생성
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{request.language.value}_app_{timestamp}.{_get_file_extension(request.language.value)}"
         file_path = os.path.join(settings.generated_code_path, filename)
 
         with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(generated_code)
+            f.write(cleaned_code)
 
         dependencies = _extract_dependencies(generated_code, request.language.value)
 
@@ -88,7 +92,7 @@ async def generate_code(request: CodeGenerationRequest, session_id: Optional[str
         )
 
 
-@router.post("/execute", response_model=CodeExecutionResponse)
+@code_router.post("/execute", response_model=CodeExecutionResponse)
 async def execute_code(request: CodeExecutionRequest):
     """생성된 코드 실행 API (Python만 지원)"""
     try:
@@ -146,7 +150,7 @@ async def execute_code(request: CodeExecutionRequest):
         )
 
 
-@router.get("/files", response_model=FileListResponse)
+@code_router.get("/files", response_model=FileListResponse)
 async def list_generated_files():
     """생성된 파일 목록 조회"""
     try:
@@ -181,7 +185,7 @@ async def list_generated_files():
         )
 
 
-@router.get("/download/{filename}")
+@code_router.get("/download/{filename}")
 async def download_file(filename: str):
     """생성된 파일 다운로드"""
     try:
@@ -206,7 +210,7 @@ async def download_file(filename: str):
         )
 
 
-@router.delete("/files/{filename}")
+@code_router.delete("/files/{filename}")
 async def delete_file(filename: str):
     """생성된 파일 삭제"""
     try:
@@ -228,7 +232,7 @@ async def delete_file(filename: str):
         )
 
 
-@router.get("/file-info/{filename}")
+@code_router.get("/file-info/{filename}")
 async def get_file_info(filename: str):
     """파일 상세 정보 조회"""
     try:

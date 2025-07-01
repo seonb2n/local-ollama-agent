@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 import logging
 from datetime import datetime
 
-from app.api.routes import router
+from app.api.code_generation_routes import code_router
+from app.api.session_management_routes import session_router
 from app.config import settings
 from app.models import AgentStatus, HealthCheckResponse
 from app.services.ollama_service import ollama_service
@@ -46,7 +47,8 @@ app = FastAPI(
 )
 
 # API 라우터 등록
-app.include_router(router, prefix="/api/v1", tags=["Code Generation"])
+app.include_router(code_router, prefix="/api/v1", tags=["Code Generation"])
+app.include_router(session_router, prefix="/api/v1", tags=["Code Generation"])
 
 # CORS 설정
 if settings.enable_cors:
