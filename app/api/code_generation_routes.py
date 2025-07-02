@@ -21,7 +21,7 @@ from ..models import (
 
 import sys
 
-from ..util.sanitize_string import clean_markdown_code_blocks
+from ..util.sanitize_string import clean_markdown_code_blocks, extract_code_only
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ..config import settings
@@ -36,47 +36,78 @@ async def generate_code(request: CodeGenerationRequest, session_id: Optional[str
         start_time = time.time()
         print(f"🤖 코드 생성 요청 (세션: {session_id[:8]}...): {request.description[:50]}...")
 
+        # 기존 세션 파일 확인
+        existing_filename = context_service.get_session_file(session_id) if session_id else None
+        existing_file_path = None
+        
+        if existing_filename:
+            existing_file_path = os.path.join(settings.generated_code_path, existing_filename)
+            if not os.path.exists(existing_file_path):
+                existing_file_path = None
+                existing_filename = None
+        
         generated_code = await code_generation_facade.generate_code_with_context(
             description=request.description,
             language=request.language.value,
             framework=request.framework,
-            session_id=session_id
+            session_id=session_id,
+            existing_file_path=existing_file_path
         )
 
-        cleaned_code = clean_markdown_code_blocks(generated_code)
+        cleaned_code = extract_code_only(generated_code)
 
-        # 파일명 생성
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{request.language.value}_app_{timestamp}.{_get_file_extension(request.language.value)}"
-        file_path = os.path.join(settings.generated_code_path, filename)
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(cleaned_code)
+        # 파일명 결정 및 파일 쓰기
+        is_modification = bool(existing_filename)
+        
+        if is_modification:
+            # 기존 파일 덮어쓰기
+            filename = existing_filename
+            file_path = os.path.join(settings.generated_code_path, filename)
+            print(f"📝 기존 파일 수정: {filename}")
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(cleaned_code)
+        else:
+            # 새 파일 생성
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{request.language.value}_app_{timestamp}.{_get_file_extension(request.language.value)}"
+            file_path = os.path.join(settings.generated_code_path, filename)
+            
+            if session_id:
+                context_service.set_session_file(session_id, filename)
+            print(f"📄 새 파일 생성: {filename}")
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(cleaned_code)
 
         dependencies = _extract_dependencies(generated_code, request.language.value)
 
         execution_time = time.time() - start_time
 
         # 컨텍스트에 대화 기록 추가
+        action_message = f"코드를 {'수정' if is_modification else '생성'}했습니다: {filename}"
         context_service.add_conversation(
             session_id=session_id,
             user_request=request.description,
-            assistant_response=f"코드를 생성했습니다: {filename}",
+            assistant_response=action_message,
             generated_code=generated_code,
             filename=filename,
             metadata={
                 "language": request.language.value,
                 "framework": request.framework,
                 "dependencies": dependencies,
-                "execution_time": execution_time
+                "execution_time": execution_time,
+                "is_modification": is_modification
             }
         )
 
         print(f"✅ 코드 생성 완료: {filename} ({execution_time:.1f}초)")
 
+        success_message = f"코드가 성공적으로 {'수정' if is_modification else '생성'}되었습니다."
+        
         return CodeGenerationResponse(
             success=True,
-            message="코드가 성공적으로 생성되었습니다.",
+            message=success_message,
             code=generated_code,
             filename=filename,
             file_path=file_path,

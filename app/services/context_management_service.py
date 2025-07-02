@@ -13,10 +13,13 @@ class ContextManagementService:
 
     def __init__(self):
         self.context_manager = context_manager
+        self.session_files = {}  # session_id -> filename 매핑
 
     def create_session(self, user_id: Optional[str] = None) -> str:
         """새 대화 세션 생성"""
-        return self.context_manager.create_session(user_id)
+        session_id = self.context_manager.create_session(user_id)
+        self.session_files[session_id] = None
+        return session_id
 
     def add_conversation(
         self,
@@ -51,6 +54,8 @@ class ContextManagementService:
 
     def delete_session(self, session_id: str) -> bool:
         """세션 삭제"""
+        if session_id in self.session_files:
+            del self.session_files[session_id]
         return self.context_manager.delete_session(session_id)
 
     def is_code_modification_request(self, description: str) -> bool:
@@ -64,6 +69,14 @@ class ContextManagementService:
 
         description_lower = description.lower()
         return any(keyword in description_lower for keyword in modification_keywords)
+
+    def set_session_file(self, session_id: str, filename: str):
+        """세션에 파일 연결"""
+        self.session_files[session_id] = filename
+
+    def get_session_file(self, session_id: str) -> Optional[str]:
+        """세션의 현재 파일 조회"""
+        return self.session_files.get(session_id)
 
 
 # 싱글톤 인스턴스

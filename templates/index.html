@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Agent 코드 생성기</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+            gap: 10px;
+            padding: 10px;
+        }
+
+        .left-panel {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .right-panel {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            color: #4a5568;
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .session-info {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .language-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .language-selector select {
+            padding: 8px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            background: white;
+            color: #4a5568;
+            font-size: 14px;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        .message-input {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 16px;
+            resize: none;
+            min-height: 60px;
+            max-height: 120px;
+        }
+
+        .message-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .send-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .send-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .new-session-btn {
+            background: linear-gradient(135deg, #48bb78, #38a169);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .new-session-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
+        }
+
+        .code-display {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            min-height: 300px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .code-info {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+        }
+
+        .copy-btn {
+            background: #4299e1;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .copy-btn:hover {
+            background: #3182ce;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e2e8f0;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-message {
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .status-success {
+            background: #c6f6d5;
+            color: #2f855a;
+            border: 1px solid #9ae6b4;
+        }
+
+        .status-error {
+            background: #fed7d7;
+            color: #c53030;
+            border: 1px solid #fbb6ce;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #a0aec0;
+            font-style: italic;
+            margin-top: 50px;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #4a5568;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 왼쪽 패널: 채팅 인터페이스 -->
+        <div class="left-panel">
+            <div class="header">
+                <h1>🤖 LLM Agent</h1>
+                <button class="new-session-btn" onclick="createNewSession()">새 대화 시작</button>
+            </div>
+
+            <div id="sessionInfo" class="session-info" style="display: none;">
+                <div>세션 ID: <span id="sessionId">-</span></div>
+                <div>생성 시간: <span id="sessionTime">-</span></div>
+            </div>
+
+            <div id="statusMessage"></div>
+
+            <div class="chat-container">
+                <div class="input-section">
+                    <div class="language-selector">
+                        <label>언어:</label>
+                        <select id="languageSelect">
+                            <option value="python">Python</option>
+                            <option value="javascript">JavaScript</option>
+                            <option value="typescript">TypeScript</option>
+                            <option value="java">Java</option>
+                            <option value="go">Go</option>
+                            <option value="rust">Rust</option>
+                            <option value="cpp">C++</option>
+                            <option value="c">C</option>
+                            <option value="csharp">C#</option>
+                        </select>
+                        <input type="text" id="frameworkInput" placeholder="프레임워크 (선택사항)"
+                               style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; margin-left: 10px;">
+                    </div>
+
+                    <div class="input-container">
+                        <textarea id="messageInput" class="message-input"
+                                  placeholder="어떤 코드를 생성하고 싶으신가요? 예: 'FastAPI로 간단한 TODO API 만들어줘'"></textarea>
+                        <button id="sendBtn" class="send-btn" onclick="generateCode()">생성</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 오른쪽 패널: 코드 결과 -->
+        <div class="right-panel">
+            <div class="header">
+                <h2>📋 생성된 코드</h2>
+            </div>
+
+            <div id="codeResult">
+                <div class="empty-state">
+                    <h3>아직 생성된 코드가 없습니다</h3>
+                    <p>왼쪽에서 코드 생성을 요청해보세요!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSessionId = null;
+        let isLoading = false;
+
+        // 새 세션 생성
+        async function createNewSession() {
+            try {
+                showStatusMessage('새 세션을 생성하는 중...', 'loading');
+
+                const response = await fetch('/api/v1/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                currentSessionId = data.session_id;
+
+                // 세션 정보 표시
+                document.getElementById('sessionId').textContent = currentSessionId.substring(0, 8) + '...';
+                document.getElementById('sessionTime').textContent = data.created_at;
+                document.getElementById('sessionInfo').style.display = 'block';
+
+                showStatusMessage('새 세션이 생성되었습니다!', 'success');
+
+                // 코드 결과 영역 초기화
+                document.getElementById('codeResult').innerHTML = `
+                    <div class="empty-state">
+                        <h3>새 세션이 시작되었습니다</h3>
+                        <p>코드 생성을 요청해보세요!</p>
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error('세션 생성 실패:', error);
+                showStatusMessage('세션 생성에 실패했습니다: ' + error.message, 'error');
+            }
+        }
+
+        // 코드 생성
+        async function generateCode() {
+            if (!currentSessionId) {
+                showStatusMessage('먼저 새 세션을 시작해주세요!', 'error');
+                return;
+            }
+
+            if (isLoading) {
+                return;
+            }
+
+            const messageInput = document.getElementById('messageInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const description = messageInput.value.trim();
+
+            if (!description) {
+                showStatusMessage('메시지를 입력해주세요!', 'error');
+                return;
+            }
+
+            try {
+                isLoading = true;
+                sendBtn.disabled = true;
+                sendBtn.innerHTML = '<div class="spinner"></div> 생성 중...';
+
+                showStatusMessage('코드를 생성하는 중...', 'loading');
+
+                const language = document.getElementById('languageSelect').value;
+                const framework = document.getElementById('frameworkInput').value;
+
+                const response = await fetch(`/api/v1/code/generate?session_id=${currentSessionId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        description: description,
+                        language: language,
+                        framework: framework || null
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                // 코드 결과 표시
+                displayCodeResult(data);
+
+                showStatusMessage('코드가 성공적으로 생성되었습니다!', 'success');
+
+                // 입력 필드 초기화
+                messageInput.value = '';
+
+            } catch (error) {
+                console.error('코드 생성 실패:', error);
+                showStatusMessage('코드 생성에 실패했습니다: ' + error.message, 'error');
+            } finally {
+                isLoading = false;
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '생성';
+            }
+        }
+
+        // 코드 결과 표시
+        function displayCodeResult(data) {
+            const codeResultDiv = document.getElementById('codeResult');
+
+            codeResultDiv.innerHTML = `
+                <div class="code-header">
+                    <div class="code-info">
+                        <div>📁 ${data.filename}</div>
+                        <div>⏱️ ${data.execution_time.toFixed(2)}초</div>
+                        <div>📦 의존성: ${data.dependencies.length > 0 ? data.dependencies.join(', ') : '없음'}</div>
+                    </div>
+                    <button class="copy-btn" onclick="copyToClipboard('${data.code.replace(/'/g, "\\'")}')">복사</button>
+                </div>
+                <div class="code-display">${escapeHtml(data.code)}</div>
+            `;
+        }
+
+        // 클립보드에 복사
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showStatusMessage('코드가 클립보드에 복사되었습니다!', 'success');
+            }).catch(err => {
+                console.error('복사 실패:', err);
+                showStatusMessage('복사에 실패했습니다.', 'error');
+            });
+        }
+
+        // HTML 이스케이프
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 상태 메시지 표시
+        function showStatusMessage(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.innerHTML = '';
+
+            if (type === 'loading') {
+                statusDiv.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        ${message}
+                    </div>
+                `;
+            } else {
+                const className = type === 'success' ? 'status-success' : 'status-error';
+                statusDiv.innerHTML = `<div class="status-message ${className}">${message}</div>`;
+
+                // 3초 후 메시지 제거
+                setTimeout(() => {
+                    statusDiv.innerHTML = '';
+                }, 3000);
+            }
+        }
+
+        // Enter 키로 전송
+        document.getElementById('messageInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                generateCode();
+            }
+        });
+
+        // 페이지 로드 시 초기 세션 생성
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                createNewSession();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

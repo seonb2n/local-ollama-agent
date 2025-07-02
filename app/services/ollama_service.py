@@ -88,6 +88,11 @@ class OllamaService:
             logger.error(f"LLM 응답 생성 실패: {e}")
             raise
 
+    async def generate_with_context(self, prompt: str, context: str = "") -> str:
+        """컨텍스트와 함께 LLM 응답 생성"""
+        full_prompt = f"{context}\n\n{prompt}" if context else prompt
+        return await self.generate_response(full_prompt)
+
     def get_current_model(self) -> str:
         """현재 사용 중인 모델명 반환"""
         return self.default_model if self.llm else None

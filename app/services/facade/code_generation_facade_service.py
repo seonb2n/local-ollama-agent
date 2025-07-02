@@ -40,7 +40,8 @@ class CodeGenerationFacade:
             language: str = "python",
             framework: Optional[str] = None,
             session_id: Optional[str] = None,
-            enable_improvement: Optional[bool] = None
+            enable_improvement: Optional[bool] = None,
+            existing_file_path: Optional[str] = None
     ) -> str:
         """컨텍스트를 활용한 스마트 코드 생성"""
 
@@ -59,12 +60,22 @@ class CodeGenerationFacade:
         if session_id:
             context_info = self.context_service.get_context_for_llm(session_id)
 
-        # 2. 외부 정보 수집 (RAG + Web Search)
+        # 2. 기존 파일 내용 읽기
+        existing_code = ""
+        if existing_file_path:
+            try:
+                with open(existing_file_path, 'r', encoding='utf-8') as f:
+                    existing_code = f.read()
+                logger.info(f"📖 기존 파일 읽기 완료: {existing_file_path}")
+            except Exception as e:
+                logger.warning(f"기존 파일 읽기 실패: {e}")
+
+        # 3. 외부 정보 수집 (RAG + Web Search)
         external_info = await self._gather_external_information(description, language)
 
-        # 3. 프롬프트 생성
+        # 4. 프롬프트 생성
         enhanced_prompt = self._build_context_aware_prompt(
-            description, language, framework, context_info, external_info
+            description, language, framework, context_info, external_info, existing_code
         )
 
         try:
@@ -128,11 +139,12 @@ class CodeGenerationFacade:
             language: str,
             framework: Optional[str],
             context_info: str,
-            external_info: str = ""
+            external_info: str = "",
+            existing_code: str = ""
     ) -> str:
         """컨텍스트를 고려한 프롬프트 구성"""
 
-        is_modification_request = self.context_service.is_code_modification_request(description)
+        is_modification_request = self.context_service.is_code_modification_request(description) or bool(existing_code)
 
         # 외부 정보 섹션
         external_section = ""
@@ -144,17 +156,18 @@ class CodeGenerationFacade:
 위의 정보를 참고하여 현재 상황에 맞는 최적의 코드를 작성해주세요.
 """
 
-        if context_info and is_modification_request:
+        if existing_code or (context_info and is_modification_request):
             # 기존 코드 수정 요청
+            code_section = f"\n\n**현재 파일 내용:**\n```{language}\n{existing_code}\n```" if existing_code else ""
             return f"""
 이전 대화 컨텍스트:
 {context_info}
 
-{external_section}
+{external_section}{code_section}
 
 현재 요청: {description}
 
-위의 컨텍스트에서 가장 최근에 생성된 코드를 기반으로 다음 작업을 수행해주세요:
+위의 기존 코드를 기반으로 다음 작업을 수행해주세요:
 - 요청사항: {description}
 - 기존 코드의 구조와 기능은 유지하면서 요청된 수정사항만 적용
 - 완전한 수정된 코드를 제공 (부분 코드가 아닌 전체 코드)
