@@ -43,6 +43,8 @@
             padding: 20px;
             backdrop-filter: blur(10px);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
         }
 
         .header {
@@ -53,6 +55,12 @@
         .header h1 {
             color: #4a5568;
             font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .header h2 {
+            color: #4a5568;
+            font-size: 1.5rem;
             margin-bottom: 10px;
         }
 
@@ -70,12 +78,83 @@
             display: flex;
             flex-direction: column;
             gap: 15px;
+            min-height: 0;
+        }
+
+        /* 히스토리 영역 */
+        .chat-history {
+            flex: 1;
+            overflow-y: auto;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 15px;
+            background: #f8fafc;
+            max-height: 60vh;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 15px;
+            border-radius: 10px;
+            word-wrap: break-word;
+        }
+
+        .user-message {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            margin-left: 20px;
+            position: relative;
+        }
+
+        .user-message::before {
+            content: "👤";
+            position: absolute;
+            left: -25px;
+            top: 12px;
+        }
+
+        .assistant-message {
+            background: #e2e8f0;
+            color: #4a5568;
+            margin-right: 20px;
+            position: relative;
+        }
+
+        .assistant-message::before {
+            content: "🤖";
+            position: absolute;
+            right: -25px;
+            top: 12px;
+        }
+
+        .response-title {
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 8px;
+        }
+
+        .response-description {
+            color: #4a5568;
+            line-height: 1.5;
+            font-size: 14px;
+            background: #f7fafc;
+            padding: 10px;
+            border-radius: 6px;
+            border-left: 3px solid #4299e1;
+            margin-top: 8px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 5px;
         }
 
         .input-section {
             display: flex;
             flex-direction: column;
             gap: 10px;
+            flex-shrink: 0;
         }
 
         .language-selector {
@@ -154,6 +233,14 @@
             box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
         }
 
+        /* 우측 패널 스타일 */
+        .right-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
         .code-display {
             background: #1a202c;
             color: #e2e8f0;
@@ -165,8 +252,7 @@
             overflow-x: auto;
             white-space: pre-wrap;
             word-wrap: break-word;
-            min-height: 300px;
-            max-height: 70vh;
+            flex: 1;
             overflow-y: auto;
         }
 
@@ -251,6 +337,32 @@
             margin-bottom: 10px;
             color: #4a5568;
         }
+
+        .chat-history::-webkit-scrollbar,
+        .code-display::-webkit-scrollbar,
+        .description-section::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-history::-webkit-scrollbar-track,
+        .code-display::-webkit-scrollbar-track,
+        .description-section::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .chat-history::-webkit-scrollbar-thumb,
+        .code-display::-webkit-scrollbar-thumb,
+        .description-section::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .chat-history::-webkit-scrollbar-thumb:hover,
+        .code-display::-webkit-scrollbar-thumb:hover,
+        .description-section::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
     </style>
 </head>
 <body>
@@ -270,6 +382,15 @@
             <div id="statusMessage"></div>
 
             <div class="chat-container">
+                <!-- 채팅 히스토리 -->
+                <div id="chatHistory" class="chat-history">
+                    <div class="empty-state">
+                        <h3>새로운 대화를 시작하세요</h3>
+                        <p>아래에 코드 생성 요청을 입력해주세요.</p>
+                    </div>
+                </div>
+
+                <!-- 입력 섹션 -->
                 <div class="input-section">
                     <div class="language-selector">
                         <label>언어:</label>
@@ -300,13 +421,16 @@
         <!-- 오른쪽 패널: 코드 결과 -->
         <div class="right-panel">
             <div class="header">
-                <h2>📋 생성된 코드</h2>
+                <h2>📋 생성 결과</h2>
             </div>
 
-            <div id="codeResult">
-                <div class="empty-state">
-                    <h3>아직 생성된 코드가 없습니다</h3>
-                    <p>왼쪽에서 코드 생성을 요청해보세요!</p>
+            <div class="right-content">
+                <!-- 코드 섹션만 유지 -->
+                <div id="codeResult">
+                    <div class="empty-state">
+                        <h3>아직 생성된 코드가 없습니다</h3>
+                        <p>왼쪽에서 코드 생성을 요청해보세요!</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -315,6 +439,7 @@
     <script>
         let currentSessionId = null;
         let isLoading = false;
+        let chatHistory = [];
 
         // 새 세션 생성
         async function createNewSession() {
@@ -341,9 +466,13 @@
                 document.getElementById('sessionTime').textContent = data.created_at;
                 document.getElementById('sessionInfo').style.display = 'block';
 
+                // 채팅 히스토리 초기화
+                chatHistory = [];
+                updateChatHistory();
+
                 showStatusMessage('새 세션이 생성되었습니다!', 'success');
 
-                // 코드 결과 영역 초기화
+                // 우측 패널 초기화 (코드 영역만)
                 document.getElementById('codeResult').innerHTML = `
                     <div class="empty-state">
                         <h3>새 세션이 시작되었습니다</h3>
@@ -355,6 +484,42 @@
                 console.error('세션 생성 실패:', error);
                 showStatusMessage('세션 생성에 실패했습니다: ' + error.message, 'error');
             }
+        }
+
+        // 채팅 히스토리 업데이트
+        function updateChatHistory() {
+            const historyDiv = document.getElementById('chatHistory');
+
+            if (chatHistory.length === 0) {
+                historyDiv.innerHTML = `
+                    <div class="empty-state">
+                        <h3>새로운 대화를 시작하세요</h3>
+                        <p>아래에 코드 생성 요청을 입력해주세요.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            historyDiv.innerHTML = chatHistory.map(item => {
+                const time = new Date(item.timestamp).toLocaleTimeString();
+                const descriptionHtml = item.description ?
+                    `<div class="response-description">${escapeHtml(item.description).replace(/\n/g, '<br>')}</div>` : '';
+
+                return `
+                    <div class="message user-message">
+                        <div><strong>요청:</strong> ${escapeHtml(item.request)}</div>
+                        <div class="message-time">${time}</div>
+                    </div>
+                    <div class="message assistant-message">
+                        <div class="response-title">응답: 코드가 생성되었습니다 (${item.language})</div>
+                        ${descriptionHtml}
+                        <div class="message-time">${time}</div>
+                    </div>
+                `;
+            }).join('');
+
+            // 스크롤을 맨 아래로
+            historyDiv.scrollTop = historyDiv.scrollHeight;
         }
 
         // 코드 생성
@@ -380,12 +545,20 @@
             try {
                 isLoading = true;
                 sendBtn.disabled = true;
-                sendBtn.innerHTML = '<div class="spinner"></div> 생성 중...';
+                sendBtn.innerHTML = '<div class="spinner"></div>';
 
                 showStatusMessage('코드를 생성하는 중...', 'loading');
 
                 const language = document.getElementById('languageSelect').value;
                 const framework = document.getElementById('frameworkInput').value;
+
+                // 히스토리에 요청 추가
+                const historyItem = {
+                    request: description,
+                    language: language,
+                    framework: framework,
+                    timestamp: new Date().toISOString()
+                };
 
                 const response = await fetch(`/api/v1/code/generate?session_id=${currentSessionId}`, {
                     method: 'POST',
@@ -406,7 +579,12 @@
 
                 const data = await response.json();
 
-                // 코드 결과 표시
+                // 히스토리에 설명도 포함하여 추가
+                historyItem.description = data.description;
+                chatHistory.push(historyItem);
+                updateChatHistory();
+
+                // 코드 결과 표시 (설명 제외)
                 displayCodeResult(data);
 
                 showStatusMessage('코드가 성공적으로 생성되었습니다!', 'success');
@@ -424,7 +602,7 @@
             }
         }
 
-        // 코드 결과 표시
+        // 코드 결과 표시 (코드만)
         function displayCodeResult(data) {
             const codeResultDiv = document.getElementById('codeResult');
 
@@ -435,7 +613,7 @@
                         <div>⏱️ ${data.execution_time.toFixed(2)}초</div>
                         <div>📦 의존성: ${data.dependencies.length > 0 ? data.dependencies.join(', ') : '없음'}</div>
                     </div>
-                    <button class="copy-btn" onclick="copyToClipboard('${data.code.replace(/'/g, "\\'")}')">복사</button>
+                    <button class="copy-btn" onclick="copyToClipboard(\`${data.code.replace(/`/g, '\\`')}\`)">복사</button>
                 </div>
                 <div class="code-display">${escapeHtml(data.code)}</div>
             `;

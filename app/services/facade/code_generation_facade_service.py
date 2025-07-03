@@ -2,7 +2,8 @@
 코드 생성 퍼사드 서비스 - 전체 코드 생성 프로세스 조율
 """
 import logging
-from typing import Optional
+import re
+from typing import Optional, Tuple
 from ..ollama_service import ollama_service
 from ..context_management_service import context_service
 from ..improvement_service import improvement_service
@@ -10,7 +11,6 @@ from ..web_search_service import web_search_service
 from ...repository.RagIntegration import RAGIntegration
 
 logger = logging.getLogger(__name__)
-
 
 class CodeGenerationFacade:
     """코드 생성 전체 프로세스를 조율하는 퍼사드 서비스"""
@@ -42,8 +42,12 @@ class CodeGenerationFacade:
             session_id: Optional[str] = None,
             enable_improvement: Optional[bool] = None,
             existing_file_path: Optional[str] = None
-    ) -> str:
-        """컨텍스트를 활용한 스마트 코드 생성"""
+    ) -> Tuple[str, str]:
+        """컨텍스트를 활용한 스마트 코드 생성
+
+        Returns:
+            Tuple[str, str]: (코드, 설명) 형태로 반환
+        """
 
         # 세션이 없으면 새로 생성
         if not session_id:
@@ -84,18 +88,60 @@ class CodeGenerationFacade:
             initial_response = await self.ollama_service.generate_response(enhanced_prompt)
 
             if not use_improvement:
-                return initial_response
+                return self._parse_response(initial_response)
 
             # 5. Self-improvement 수행
             final_response = await self.improvement_service.perform_improvement_cycle(
                 initial_response, description, language, framework, session_id
             )
 
-            return final_response
+            return self._parse_response(final_response)
 
         except Exception as e:
             logger.error(f"컨텍스트 기반 코드 생성 실패: {e}")
             raise
+
+    def _parse_response(self, response: str) -> Tuple[str, str]:
+        """LLM 응답을 코드와 설명으로 분리"""
+        try:
+            # 코드 블록을 찾는 정규식 패턴 (언어 지정 포함)
+            code_pattern = r'```(?:[a-zA-Z0-9+\-#]*\n)?(.*?)```'
+            code_matches = re.findall(code_pattern, response, re.DOTALL)
+
+            if code_matches:
+                # 가장 긴 코드 블록을 메인 코드로 선택
+                main_code = max(code_matches, key=len).strip()
+
+                # 코드 블록을 제거한 나머지 부분을 설명으로 처리
+                explanation = response
+                for match in code_matches:
+                    # 코드 블록 전체를 제거 (```)
+                    explanation = re.sub(r'```[a-zA-Z0-9+\-#]*\n?' + re.escape(match) + r'\n?```', '', explanation, flags=re.DOTALL)
+
+                explanation = self._clean_explanation(explanation)
+
+                logger.info(f"📝 응답 파싱 완료 - 코드: {len(main_code)}자, 설명: {len(explanation)}자")
+                return main_code, explanation
+            else:
+                # 코드 블록이 없는 경우, 전체를 설명으로 처리
+                logger.warning("코드 블록을 찾을 수 없음 - 전체 응답을 설명으로 처리")
+                return "", self._clean_explanation(response)
+
+        except Exception as e:
+            logger.error(f"응답 파싱 실패: {e}")
+            return "", response
+
+    def _clean_explanation(self, explanation: str) -> str:
+        """설명 텍스트 정리"""
+        # 불필요한 공백 및 줄바꿈 정리
+        explanation = re.sub(r'\n\s*\n\s*\n', '\n\n', explanation)  # 3개 이상의 연속 줄바꿈을 2개로
+        explanation = explanation.strip()
+
+        # 설명이 너무 짧으면 기본 설명 추가
+        if len(explanation) < 10:
+            explanation = "요청하신 코드가 생성되었습니다."
+
+        return explanation
 
     async def _gather_external_information(self, description: str, language: str) -> str:
         """외부 정보 수집 (RAG + Web Search)"""
@@ -156,6 +202,24 @@ class CodeGenerationFacade:
 위의 정보를 참고하여 현재 상황에 맞는 최적의 코드를 작성해주세요.
 """
 
+        # 응답 형식 지시사항
+        format_instruction = f"""
+**중요: 반드시 다음 형식으로 응답해주세요:**
+
+1. 먼저 완전한 코드를 마크다운 코드 블록으로 작성:
+```{language}
+[여기에 완전한 코드 작성]
+```
+
+2. 그 다음 코드에 대한 설명을 작성:
+- 코드의 주요 기능과 구조 설명
+- 사용된 라이브러리나 기술 설명
+- 실행 방법이나 주의사항
+- 추가 개선 사항이나 확장 가능한 부분
+
+이 형식을 반드시 지켜주세요.
+"""
+
         if existing_code or (context_info and is_modification_request):
             # 기존 코드 수정 요청
             code_section = f"\n\n**현재 파일 내용:**\n```{language}\n{existing_code}\n```" if existing_code else ""
@@ -173,7 +237,7 @@ class CodeGenerationFacade:
 - 완전한 수정된 코드를 제공 (부분 코드가 아닌 전체 코드)
 - 기존 스타일과 패턴 일관성 유지
 
-수정된 완전한 코드:
+{format_instruction}
 """
         elif context_info:
             # 기존 프로젝트에 새 기능 추가
@@ -193,14 +257,14 @@ class CodeGenerationFacade:
 4. 점진적이고 발전적인 코드 생성
 5. 기존 아키텍처 패턴 준수
 
-답변:
+{format_instruction}
 """
         else:
             # 새로운 프로젝트 시작
             template = self._get_template_by_language(description, language, framework)
             if external_section:
-                return f"{external_section}\n\n{template}"
-            return template
+                return f"{external_section}\n\n{template}\n\n{format_instruction}"
+            return f"{template}\n\n{format_instruction}"
 
     def _get_template_by_language(self, description: str, language: str, framework: Optional[str]) -> str:
         """언어별 템플릿 선택"""
@@ -230,8 +294,6 @@ class CodeGenerationFacade:
 4. 상세한 주석으로 코드 설명
 5. 메인 실행 부분 포함 (if __name__ == "__main__":)
 6. 사용자 친화적인 출력 메시지
-
-코드만 출력하고 다른 설명은 최소화해주세요.
 """
 
     def _get_javascript_template(self, description: str, framework: Optional[str]) -> str:
@@ -252,8 +314,6 @@ class CodeGenerationFacade:
 3. 에러 처리 포함 (try-catch)
 4. 상세한 주석으로 코드 설명
 5. 사용자 친화적인 출력
-
-코드만 출력하고 다른 설명은 최소화해주세요.
 """
 
     def _get_java_template(self, description: str, framework: Optional[str]) -> str:
@@ -274,8 +334,6 @@ class CodeGenerationFacade:
 3. 실행 가능한 main 메소드
 4. 예외 처리 포함
 5. 상세한 주석으로 코드 설명
-
-코드만 출력하고 다른 설명은 최소화해주세요.
 """
 
     # 편의 메서드들

@@ -46,15 +46,13 @@ async def generate_code(request: CodeGenerationRequest, session_id: Optional[str
                 existing_file_path = None
                 existing_filename = None
         
-        generated_code = await code_generation_facade.generate_code_with_context(
+        generated_code, description = await code_generation_facade.generate_code_with_context(
             description=request.description,
             language=request.language.value,
             framework=request.framework,
             session_id=session_id,
             existing_file_path=existing_file_path
         )
-
-        cleaned_code = extract_code_only(generated_code)
 
         # 파일명 결정 및 파일 쓰기
         is_modification = bool(existing_filename)
@@ -66,7 +64,7 @@ async def generate_code(request: CodeGenerationRequest, session_id: Optional[str
             print(f"📝 기존 파일 수정: {filename}")
             
             with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(cleaned_code)
+                f.write(generated_code)
         else:
             # 새 파일 생성
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -78,7 +76,7 @@ async def generate_code(request: CodeGenerationRequest, session_id: Optional[str
             print(f"📄 새 파일 생성: {filename}")
             
             with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(cleaned_code)
+                f.write(generated_code)
 
         dependencies = _extract_dependencies(generated_code, request.language.value)
 
@@ -109,6 +107,7 @@ async def generate_code(request: CodeGenerationRequest, session_id: Optional[str
             success=True,
             message=success_message,
             code=generated_code,
+            description=description,
             filename=filename,
             file_path=file_path,
             dependencies=dependencies,

@@ -37,6 +37,7 @@ class CodeGenerationResponse(BaseModel):
     success: bool = Field(..., description="성공 여부")
     message: str = Field(..., description="응답 메시지")
     code: Optional[str] = Field(default=None, description="생성된 코드")
+    description: Optional[str] = Field(default=None, description="설명")
     filename: Optional[str] = Field(default=None, description="저장된 파일명")
     file_path: Optional[str] = Field(default=None, description="파일 경로")
     dependencies: Optional[List[str]] = Field(default=[], description="필요한 패키지 목록")
