@@ -58,6 +58,11 @@
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
+### 정리 로그
 
+1. [로컬 한경 설정](https://seonb2n.github.io/posts/agent-self-host01/)
+2. [컨텍스트 관리](https://seonb2n.github.io/posts/agent-self-host02/)
+3. [Self Improvements](https://seonb2n.github.io/posts/agent-self-host03/)
+4. [웹 검색](https://seonb2n.github.io/posts/agent-self-host04/)
 
 ---
